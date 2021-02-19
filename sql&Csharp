@@ -1,0 +1,100 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.SqlClient;
+using System.Data.OleDb;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace RX1
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void button1_Click_1(object sender, EventArgs e)
+        {
+            //dataGridView1.DataSource = null;
+            dataGridView1.DataSource = xlsToDatable();
+
+        }
+        //将xls文件投入datatable
+        public static DataTable xlsToDatable()
+        {
+            //string xlsPath = ("")
+            DataTable dt1 = new DataTable();
+            string strExcel = "select * from   [Sheet1$]";
+
+            //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
+            DataSet ds1 = new DataSet();
+            // 连接到excel 数据源,   xlsx要用ACE 
+            string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0; Data Source= D:/ATS/Application/wpf/battle.xlsx; Extended Properties='Excel 12.0'");
+            OleDbConnection conn = new OleDbConnection(strConn);
+            conn.Open();
+
+            // 存入datatable
+            OleDbDataAdapter dAdapter = new OleDbDataAdapter(strExcel, strConn);
+            dAdapter.Fill(ds1);
+            conn.Dispose();
+            conn.Close();
+            return ds1.Tables[0];
+        }
+
+        //写入数据库
+        public static void dtToSql(DataTable dt, string connStr )
+        {
+            //使用sqlbulkcopy方法
+            SqlBulkCopy sbc = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction);
+            sbc.WriteToServer(dt);
+            sbc.Close();
+        }
+
+        private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+    }
+}
+
+
+
+use master
+if exists ( select * from sysdatabases where name='testData')
+
+
+create database testData --create database表示建立数据库
+on primary				 --表示主文件组,也可以不写
+(
+name = 'testData',
+filename = 'd:\ATS\Application\testData.mdf',
+size = 5mb,
+filegrowth = 10%
+)
+log on        --表示开始工作
+(
+name = 'testData_Log',
+filename = 'd:\ATS\Application\testData_Log.ldf',
+size = 2mb,
+filegrowth = 10%
+)
+go             --不执行go的话，就不会创建
+
+use testData
+go
+
+if exists(select * from sysobjects where name='td')
+drop table td
+
+create table td		    --not null 指示某列不能存储 NULL 值
+(
+Operator char identity(1,1) primary key,
+Product char(10) ,
+Test char default(20),  --DEFAULT - 规定没有给列赋值时的默认值。
+)
