@@ -1,0 +1,33 @@
+use master
+if exists ( select * from sysdatabases where name='testData')
+
+
+create database testData --create database表示建立数据库
+on primary				 --表示主文件组,也可以不写
+(
+name = 'testData',
+filename = 'd:\ATS\Application\testData.mdf',
+size = 5mb,
+filegrowth = 10%
+)
+log on        --表示开始工作
+(
+name = 'testData_Log',
+filename = 'd:\ATS\Application\testData_Log.ldf',
+size = 2mb,
+filegrowth = 10%
+)
+go             --不执行go的话，就不会创建
+
+use testData
+go
+
+if exists(select * from sysobjects where name='td')
+drop table td
+
+create table td		    --not null 指示某列不能存储 NULL 值
+(
+Operator char identity(1,1) primary key,
+Product char(10) ,
+Test char default(20),  --DEFAULT - 规定没有给列赋值时的默认值。
+)
