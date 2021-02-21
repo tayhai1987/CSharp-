@@ -1,0 +1,74 @@
+使用 SqlBulkCopy 类只能向 SQL Server 表写入数据。但是，数据源不限于 SQL Server；可以使用任何数据源，只要数据可加载到 DataTable 实例或可使用 IDataReader 实例读取数据。
+
+ 
+
+要使用此类一共需要用到三个步骤：
+
+1.初始化数据源类型，DataTable或DataRow，一般我们使用数据库中的列名作为数据源的列名；
+
+
+1 DataTable dtCopy = new DataTable();
+2 dtCopy.Columns.Add("jhsSitid");
+3 dtCopy.Columns.Add("applyGoodsId");
+4 dtCopy.Columns.Add("ghsSitid");
+5 dtCopy.Columns.Add("state");
+6 dtCopy.Columns.Add("applyTime");
+初始化DataTable
+2.给数据源添加数据：
+
+
+ 1  foreach (DataRow r in ds.Tables[0].Rows)
+ 2             {
+ 3                 DataRow newRow = dtCopy.NewRow();
+ 4                 newRow["jhsSitid"] = r["sitid"].ToString();
+ 5                 newRow["applyGoodsId"] = goodsId;
+ 6                 newRow["ghsSitid"] = siteId;
+ 7                 newRow["state"] = "0";
+ 8                 newRow["applyTime"] = DateTime.Now;
+ 9                 dtCopy.Rows.Add(newRow);
+10             }
+循环获取数据源
+3.打开数据库链接，批量插入数据源数据：
+
+
+ 1 SqlConnection conn = new SqlConnection(baseclass.connectionString);
+ 2                 if (conn.State == ConnectionState.Closed)
+ 3                 {
+ 4                     conn.Open();
+ 5                 }
+ 6                 SqlTransaction st = conn.BeginTransaction();
+ 7                 using (SqlBulkCopy sqlCopy = new SqlBulkCopy(conn, SqlBulkCopyOptions.FireTriggers, st))
+ 8                 {
+ 9                     sqlCopy.DestinationTableName = "jhqq_list";
+10                     sqlCopy.BulkCopyTimeout = 60;
+11                     sqlCopy.ColumnMappings.Add("jhsSitId", "jhsSitId");
+12                     sqlCopy.ColumnMappings.Add("applyGoodsId", "applyGoodsId");
+13                     sqlCopy.ColumnMappings.Add("ghsSitId", "ghsSitId");
+14                     sqlCopy.ColumnMappings.Add("state", "state");
+15                     sqlCopy.ColumnMappings.Add("applyTime", "applyTime");
+16                     try
+17                     {
+18                         sqlCopy.WriteToServer(dtCopy);
+19                         st.Commit();
+20                         result = true;
+21                     }
+22                     catch (Exception ex)
+23                     {
+24                         st.Rollback();
+25                     }
+26                     finally
+27                     {
+28                         conn.Close();
+29                     }
+30                 }
+批量插入到数据库
+ 
+
+sqlCopy.DestinationTableName-------->为指定数据库表名
+
+sqlCopy.BulkCopyTimeout------------->指定完成时间
+
+sqlCopy.ColumnMappings.Add--------->指定数据库与数据源中的对应关系
+
+另外得注意的是，sqlCopy.ColumnMappings.Add指定对应关系时，一定要注意大小写要与数据库一直，sqlCopy.ColumnMappings.Add是对大小写很敏感的，
+另外对应的字段个数也必须一致，否则就会出现《给定的 ColumnMapping 与源或目标中的任意列均不匹配。》错误；
