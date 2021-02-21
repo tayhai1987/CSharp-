@@ -15,7 +15,7 @@
 6 dtCopy.Columns.Add("applyTime");
 初始化DataTable
 2.给数据源添加数据：
-
+//如果datatable有数据了这步可以省略？？？
 
  1  foreach (DataRow r in ds.Tables[0].Rows)
  2             {
@@ -28,8 +28,8 @@
  9                 dtCopy.Rows.Add(newRow);
 10             }
 循环获取数据源
-3.打开数据库链接，批量插入数据源数据：
 
+3.打开数据库链接，批量插入数据源数据：
 
  1 SqlConnection conn = new SqlConnection(baseclass.connectionString);
  2                 if (conn.State == ConnectionState.Closed)
