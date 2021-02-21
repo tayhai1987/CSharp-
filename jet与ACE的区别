@@ -1,0 +1,163 @@
+Jet 引擎，可以访问 Office 97-2003，但不能访问 Office 2007。
+
+ACE 引擎是随 Office 2007 一起发布的数据库连接组件，既可以访问 Office 2007，也可以访问 Office 97-2003。
+
+另外：Microsoft.ACE.OLEDB.12.0 可以访问正在打开的 Excel 文件，而 Microsoft.Jet.OLEDB.4.0 是不可以的。
+
+所以，在使用不同版本的office时，要注意使用合适的引擎。
+
+以上对access同样有效。
+
+Jet连接语句：Provider=Microsoft.Jet.OLEDB.4.0;Data Source=|DataDirectory|\您 的数据库名.mdb;Persist Security Info=True;Jet OLEDB:Database Password=您的数据库密码
+
+ACE连接语句：Provider=Microsoft.ACE.OLEDB.12.0;Data Source=|DataDirectory|\您 的数据库名.accdb;Persist Security Info=True;Jet OLEDB:Database Password=您的数据库密码
+
+-----------------------------------------------------------------------------------------------------------------
+
+Microsoft.Jet.OLEDB.4.0，microsoft.ACE.oledb.12.0遇到提示这种东西没有注册到，解决方法是先检查有没有安装offcie和access软件。前一种要Office2003，后一种要Office2007以上版本。
+
+网上的解决方式大概如下，但是行不通：
+
+需要注意的问题和解决方法：
+
+1.Microsoft.Jet.OLEDB.4.0不要写成Miscrosoft.Jet.OLEDB.4.0，；
+
+2.Data Source不要写成“Data Sourse”，
+
+3.检查是否安装了Office
+
+4.重新安装注册MDAC28.exe （一般你的安装目录里有或者到微软的官方网站上下） 
+
+5.如果是64位平台，也可能出现这种情况；解决方法：生成->配置管理器->平台->点击Any Cpu选项卡->新建->新建平台->X86 
+
+微软提供的解决方法：
+
+错误信息：未在本地计算机上注册“microsoft.ACE.oledb.12.0”提供程序。
+
+解决办法：
+
+去http://download.microsoft.com/download/7/0/3/703ffbcb-dc0c-4e19-b0da-1463960fdcdb/AccessDatabaseEngine.exe下载。然后安装就行了。
+
+本错误是由于你使用了ACCESS2007版本建立的数据库,但服务器中没有相配合使用的程序,所以出错.
+
+未在本地计算机上注册“microsoft.ACE.oledb.12.0”提供程序。
+
+说明: 执行当前 Web 请求期间，出现未处理的异常。请检查堆栈跟踪信息，以了解有关该错误以及代码中导致错误的出处的详细信息。 
+
+异常详细信息: System.InvalidOperationException: 未在本地计算机上注册“microsoft.ACE.oledb.12.0”提供程序。
+
+下载2007 Office system 驱动程序：数据连接组件安装
+
+http://download.microsoft.com/download/7/0/3/703ffbcb-dc0c-4e19-b0da-1463960fdcdb/AccessDatabaseEngine.exe
+
+此下载将安装一组组件，非 Microsoft Office 应用程序可以使用它们从 2007 Office system 文件中读取数据，
+
+例如从 Microsoft Office Access 2007（mdb 和 accdb）文件以及 Microsoft Office Excel 2007（xls、xlsx 和 xlsb）文件中读取数据。
+
+这些组件还支持与 Microsoft Windows SharePoint Services 和文本文件建立连接。
+
+此外，还会安装 ODBC 和 OLEDB 驱动程序，供应用程序开发人员在开发与 Office 文件格式连接的应用程序时使用。
+
+---------------------------------------
+
+使用此下载：
+
+如果您是应用程序用户，请查阅应用程序文档以获得有关如何使用相应的驱动程序的详细信息。
+
+如果您是使用 OLEDB 的应用程序开发人员，请将 ConnectionString 属性的 Provider 参数设置为“Microsoft.ACE.OLEDB.12.0”
+
+如果要连接到 Microsoft Office Excel 数据，请将“Excel 12.0”添加到 OLEDB 连接字符串的扩展属性中。
+
+如果您是使用 ODBC 连接到 Microsoft Office Access 数据的应用程序开发人员，
+
+请将连接字符串设置为“Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=path to mdb/accdb file”
+
+如果您是使用 ODBC 连接到 Microsoft Office Excel 数据的应用程序开发人员，
+
+请将连接字符串设置为“Driver={Microsoft Excel Driver (*.xls, *.xlsx, *.xlsm, *.xlsb)};DBQ=path to xls/xlsx/xlsm/xlsb file”
+
+详情:http://www.microsoft.com/downloads/zh-cn/details.aspx?displaylang=zh-cn&FamilyID=7554f536-8c28-4598-9b72-ef94e038c891
+
+或者：
+
+解决办法1 (验证可以了)
+
+  选择 该应用程序的 应用程序池 ------>选择高级设置 --------->启用32位应用程序 ------->true  
+
+解决办法2
+
+  Microsoft.ACE.OLEDB.12.0是不能再x64上使用的，你要强制把你的web application编译成x86再发布到Win08 x64上，记得在Application pool上设置Enable 32bit Application = true。
+
+(没有验证)
+
+ 
+
+如果是64位平台，也可能出现这种情况。 解决方法：项目->属性->生成->配置管理器->平台->点击Any Cpu选项卡->选择 X86 英文版：Build->Platform target: select "X86"
+
+-----------------------------------------------------------------------------------------------------------------
+Excel 97-2003
+
+Provider=Microsoft.ACE.OLEDB.12.0;Data Source=c:\myFolder\myOldExcelFile.xls;Extended Properties="Excel 8.0;HDR=YES";
+
+Excel 2007-2013
+
+Provider=Microsoft.ACE.OLEDB.12.0;Data Source=c:\myFolder\myExcel2007file.xlsx;Extended Properties="Excel 12.0 Xml;HDR=YES";
+
+Access 97-2003
+
+Provider=Microsoft.ACE.OLEDB.12.0;Data Source=C:\myFolder\myAccessFile.mdb;Persist Security Info=False;
+
+Access 2007
+
+Provider=Microsoft.ACE.OLEDB.12.0;Data Source=C:\myFolder\myAccessFile.accdb;Persist Security Info=False;
+
+DBF / FoxPro
+
+Provider=Microsoft.ACE.OLEDB.12.0;Data Source=c:\folder;Extended Properties=dBASE IV;User ID=Admin;
+
+注意：
+
+"HDR=Yes;"声名第一行的数据为域名，并非数据。 
+
+"HDR=No;"第一行为数据。
+
+-----------------------------------------------------------------------------------------------------------------
+Xlsx文件
+    这是用来连接带Xlsx扩展名的Excel 2007文件。这是不带宏的Office Open XML格式。
+以下是语法格式：
+Provider
+   "HDR=yes;"是说第一行是列名而不是数据。"HDR=No;"正好与前面的相反。
+ 
+把数据当做文本对待
+   使用这条连接当你想把所有的数据都当做文本对待时，覆盖Excel通常的猜测这列的数据类型。
+以下是语法格式：
+Provider= Microsoft.ACE.OLEDB.12.0; Data Source= c:\myFolder\myExcel2007file.xlsx; Extended Properties= "Excel 12.0 Xml;HDR=YES;IMEX=1";
+   如果你想把列名也读到结果集中(使用“HDR=NO”尽管第一行是列名)并且列中的数据是数值型的，使用“IMEX=1”可必免冲突。
+　　使用"IMEX=1"检索混合数据列是一种安全的方法。试想一下，当Driver检索出数据列中有一种数据类型的excel文件可以正常工作，而另一个excel文件(某列)被检测出两种类型，这会造成你的程序的冲突。
+ 
+Xlsb文件
+　　这是用来连接带Xlsb扩展名的Excel 2007文件。这是一种保存为二进制的Office Open XML格式。 不像Xlsx文件那种可读的文件格式。此种格式在数据量大时可以提升性能。
+以下是语法格式：
+Provider= Microsoft.ACE.OLEDB.12.0; Data Source= c:\myFolder\myBinaryExcel2007file.xlsb; Extended Properties= "Excel 12.0;HDR=YES";
+   "HDR=yes;"是说第一行是列名而不是数据。"HDR=No;"正好与前面的相反。
+ 
+Xlsm文件
+　　　 这是用来连接带Xlsm扩展名的Excel 2007文件。这是带宏的Office Open XML格式。
+以下是语法格式：
+Provider= Microsoft.ACE.OLEDB.12.0; Data Source= c:\myFolder\myExcel2007file.xlsm; Extended Properties= "Excel 12.0 Macro;HDR=YES";
+   注意：字符串中的引号"要用你的程序的语言的转义语法转义一下。
+   在C中为　\"  ,    VB,VBScript为　""
+   XML(Web.config etc)  &quot; , 或者可以使用单引号。
+
+附：
+在编程环境下，比如C#编程环境，要构成连接字符串。而字符串要放到双引号内，比如:
+string connString =string.Format("Provider=Microsoft.Jet.OLEDB.4.0;Data Source={0};Extended Properties=Excel 8.0", filePath);
+filePath是excel文件的目录。
+如果Extended Properties需要加其他的属性，比如： IMEX=1
+这时字符串要写成这样：
+string connString =
+                string.Format("Provider=Microsoft.Jet.OLEDB.4.0;Data Source={0};Extended Properties='Excel 8.0;IMEX=1'",
+                              filePath);
+注意 单引号。
+
+原文链接https://blog.csdn.net/goto1997/article/details/78671702
