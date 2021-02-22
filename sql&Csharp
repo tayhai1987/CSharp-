@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace RX1
 {
@@ -19,23 +20,39 @@ namespace RX1
             InitializeComponent();
         }
 
+        
+        //点击展示excel转为datatable格式的数据
         private void button1_Click_1(object sender, EventArgs e)
         {
             //dataGridView1.DataSource = null;
-            dataGridView1.DataSource = xlsToDatable();
+            try
+            {
+                dataGridView1.DataSource = xlsToDatable();
+            }
+            catch
+            {
+                MessageBox.Show(" 打开失败 ！");
+            }
+            finally
+            {
+                //
+            }
+         
 
         }
-        //将xls文件投入datatable
+        //将xls文件投入datatable ， 返回一个datatable为 ds1.table[0]
         public static DataTable xlsToDatable()
         {
-            //string xlsPath = ("")
+            //设置excel 文件的路径
+            string ExcelPath = "D:/ATS/Application/wpf/battle.xlsx";
+            
             DataTable dt1 = new DataTable();
             string strExcel = "select * from   [Sheet1$]";
 
             //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
             DataSet ds1 = new DataSet();
             // 连接到excel 数据源,   xlsx要用ACE 
-            string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0; Data Source= D:/ATS/Application/wpf/battle.xlsx; Extended Properties='Excel 12.0'");
+            string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0;" + "Data Source= "+ ExcelPath + "; Extended Properties='Excel 12.0'");
             OleDbConnection conn = new OleDbConnection(strConn);
             conn.Open();
 
@@ -46,23 +63,57 @@ namespace RX1
             conn.Close();
             return ds1.Tables[0];
         }
-
-        //写入数据库
-        public static void dtToSql(DataTable dt, string connStr )
-        {
-            //使用sqlbulkcopy方法
-            SqlBulkCopy sbc = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction);
-            sbc.WriteToServer(dt);
-            sbc.Close();
-        }
-
+      
         private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
         {
 
         }
+
+        //点击展示从数据库读取的数据，从sql server转为datatable
+        private void button2_Click(object sender, EventArgs e)
+        {
+            //运行时间简单记录
+            System.Diagnostics.Stopwatch sw = new Stopwatch();
+            sw.Start();
+            
+            //配置 sqlserver的服务器名用户等
+            string connStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; User ID=cq1_atsdc_user;" +
+            "Password = a8ZbJU9aBcJdY9";
+            SqlConnection Conn = new SqlConnection(connStr);
+            Conn.Open();
+            SqlBulkCopy bulkCopy = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction);
+            
+            bulkCopy.DestinationTableName = "AES_excel_toSql";
+
+            // 添加数据到datatable  现在从excel读取到datatable。所以有数据，不用添加
+            //string[] columns = new[] { "R", "C", "E" };
+            //foreach (var col in columns)
+            //{
+            //    dt.Columns.Add(col);
+            //    bulkCopy.ColumnMappings.Add(col, col);
+            //}
+            //for (int i = 0; i < 50 * 10000; i++)
+            //    dt.Rows.Add(i.ToString(), i.ToString());
+
+            //开始复制到sql
+            try
+            {
+                bulkCopy.WriteToServer(xlsToDatable());
+                bulkCopy.Close();
+            }
+            
+            catch
+            {
+                MessageBox.Show("failed!");
+            }
+            finally
+            {
+                //运行时间记录停止（不记录），关闭数据库
+                sw.Stop();
+
+                Conn.Close();
+                MessageBox.Show("  successful！ ");
+            }
+        }
     }
 }
-
-
-
-
