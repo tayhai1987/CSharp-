@@ -105,7 +105,7 @@ namespace RX1
             catch
             {
                 MessageBox.Show("failed!");
-            }
+            }  
             finally
             {
                 //运行时间记录停止（不记录），关闭数据库
