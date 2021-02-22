@@ -1,0 +1,409 @@
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Data;
+using System.Data.OleDb;
+using System.IO;
+using System.ServiceProcess;
+using System.Timers;
+
+namespace DataCollection_SRSF_FA
+{
+    public partial class Service1 : ServiceBase
+    {
+        #region 初始配置定义
+        //常量
+        private const char Config_Splitor = ',';
+        private const char Data_Splitor = ',';      //以处理内容分类
+        //变量
+        private static string workingPath;
+        private static string archivePath;
+        private static string timeInterval;
+        //private static string CustomDBSqlConn;
+        private static string AESDBSqlConn;
+        private static string bsrTable;
+        private static string[] bsrTableColumns;
+        private static string fsrTable;
+        private static string[] fsrTableColumns;
+        private static string alignTable;
+        private static string[] alignTableColumns;
+        private string checkTime;
+        private List<string> fileNameMask;
+        //实例化
+        Timer TimeCyle = new Timer();//计时器
+        //DB CustomDB;
+        DB AESDB;
+        //初始化函数
+        public void InitConfig()
+        {
+            workingPath = ConfigurationManager.AppSettings["WORKINGPath"].ToString();
+            archivePath = ConfigurationManager.AppSettings["ARCHIVEPath"].ToString();
+            timeInterval = ConfigurationManager.AppSettings["TimeInterval"].ToString();
+            // CustomDBSqlConn = ConfigurationManager.AppSettings["CustomDBSqlConn"].ToString();
+            AESDBSqlConn = ConfigurationManager.AppSettings["AESDBSqlConn"].ToString();
+            bsrTable = ConfigurationManager.AppSettings["BSRTable"].ToString();
+            bsrTableColumns = ConfigurationManager.AppSettings["BSRTableColumns"].ToString().Split(Config_Splitor);
+            fsrTable = ConfigurationManager.AppSettings["FSRTable"].ToString();
+            fsrTableColumns = ConfigurationManager.AppSettings["FSRTableColumns"].ToString().Split(Config_Splitor);
+            alignTable = ConfigurationManager.AppSettings["AlignTable"].ToString();
+            alignTableColumns = ConfigurationManager.AppSettings["AlignTableColumns"].ToString().Split(Config_Splitor);
+            checkTime = ConfigurationManager.AppSettings["CheckTime"].ToString();
+            //CustomDB = new DB(CustomDBSqlConn);
+            AESDB = new DB(AESDBSqlConn);
+            fileNameMask = GetValueList("FileNameMask");
+        }
+        private List<string> GetValueList(string key)
+        {
+            List<string> valueList = new List<string>();
+            try
+            {
+                string keyValue = ConfigurationManager.AppSettings[key].ToString();
+                for (int i = 0; i < keyValue.Split(Config_Splitor).Length; i++)
+                {
+                    valueList.Add(keyValue.Split(Config_Splitor)[i]);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "GetValueList", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "GetValueList", "StackTrace");
+            }
+            return valueList;
+        }
+        #endregion
+        #region 事件定时器
+        private void InitTimer()
+        {
+            TimeCyle.Interval = int.Parse(timeInterval) * 60 * 1000; //记时长短
+            TimeCyle.Elapsed += new ElapsedEventHandler(TimeEvent);
+            TimeCyle.Enabled = true;
+            TimeCyle.AutoReset = true;
+        }
+        private void TimeEvent(object source, ElapsedEventArgs e)
+        {
+            TimeCyle.Stop();
+            if (DateTime.Now.ToString("HH:mm") == checkTime)  //启动时间
+            {
+                Log.Deletelog();
+                Log.Writelog("Start DataCollection!", "Service1", "TimeEvent", "Tips");
+                GetFiles();
+                Log.Writelog("DataCollection finished!", "Service1", "TimeEvent", "Tips");
+            }
+            TimeCyle.Start();
+        }
+        #endregion
+        private void Workflow()
+        {
+            Log.Writelog("Load the initial configuration!", "Service1", "Workflow", "Tips");
+            InitConfig();
+            Log.Writelog($"Initialize the timer!(Trigger once every {timeInterval} minutes)", "Service1", "Workflow", "Tips");
+            InitTimer();
+            Log.Writelog("Start the timer!", "Service1", "Workflow", "Tips");
+            TimeCyle.Start();
+        }
+        #region CSV文件处理
+        private DataTable CsvToDT(string path)
+        {
+            DataTable DT = new DataTable();
+            int id = 0;
+            DT.Columns.Add("ID");
+            string strLine = string.Empty;
+            List<string> Csv_list = new List<string>();
+            FileStream FS = null;
+            try
+            {
+                FS = new FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+                StreamReader SR = new StreamReader(FS);
+                while ((strLine = SR.ReadLine()) != null)
+                {
+                    if (string.IsNullOrWhiteSpace(strLine))
+                    {
+                        continue;
+                    }                 
+                    if (id == 0)
+                    {
+                        for (int i = 0; i < strLine.Split(Data_Splitor).Length; i++)
+                        {
+                            DT.Columns.Add(strLine.Split(Data_Splitor)[i].Trim('\"'));
+
+                        }
+                        id++;
+                        continue;
+                    }
+                    if (path.Contains("Align.csv") && !strLine.Contains("LC"))
+                    {
+                        continue;
+                    }
+                    DataRow allRow = DT.NewRow();
+                    allRow["ID"] = id;
+                    for (int i = 0; i < strLine.Split(Data_Splitor).Length; i++)
+                    {
+                        allRow[i + 1] = strLine.Split(Data_Splitor)[i].Trim('\"');
+                    }
+                    DT.Rows.Add(allRow);
+                    id++;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "CsvToDT", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "CsvToDT", "StackTrace");
+            }
+            finally
+            {
+                if (FS != null)
+                { FS.Close(); FS.Dispose(); }
+                Log.Writelog("Function[CsvToDT] is complete", "Service1", "CsvToDT", "Tips");
+            }
+            return DT;
+        }
+        private DataTable HandleBSR(string path)
+        {
+            DataTable DT = new DataTable();
+            DataTable csvDT = CsvToDT(path);
+            for (int i = 0; i < bsrTableColumns.Length; i++)
+            {
+                DT.Columns.Add(bsrTableColumns[i]);
+            }
+            if (csvDT.Rows.Count == 0)
+            {
+                Log.Writelog($"The [{path}] file =convert=> DataTable is null", "Service1", "HandleBSR", "Tips");
+                return DT;
+            }
+            try
+            {
+                foreach (DataRow rowData in csvDT.Rows)
+                {
+                    DataRow allRow = DT.NewRow();
+                    allRow[bsrTableColumns[0]] = rowData["Recipe Name"];
+                    allRow[bsrTableColumns[1]] = rowData["Product"];
+                    allRow[bsrTableColumns[2]] = rowData["Layer"];
+                    allRow[bsrTableColumns[3]] = rowData["Side"];
+                    allRow[bsrTableColumns[4]] = rowData["Lot"];
+                    allRow[bsrTableColumns[5]] = rowData["MeasTime"];
+                    allRow[bsrTableColumns[6]] = Convert.ToInt16(rowData["Unit"]);
+                    allRow[bsrTableColumns[7]] = rowData["Meas Type"];
+                    allRow[bsrTableColumns[8]] = rowData["S1_MW(um)"];
+                    DT.Rows.Add(allRow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "HandleBSR", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "HandleBSR", "StackTrace");
+            }
+            finally
+            {
+                Log.Writelog("Function[HandleBSR] is complete", "Service1", "HandleBSR", "Tips");
+            }
+            return DT;
+        }
+        private DataTable HandleFSR(string path)
+        {
+            DataTable DT = new DataTable();
+            DataTable csvDT = CsvToDT(path);
+            for (int i = 0; i < fsrTableColumns.Length; i++)
+            {
+                DT.Columns.Add(fsrTableColumns[i]);
+            }
+            if (csvDT.Rows.Count == 0)
+            {
+                Log.Writelog($"The [{path}] file =convert=> DataTable is null", "Service1", "HandleFSR", "Tips");
+                return DT;
+            }
+            try
+            {
+                foreach (DataRow rowData in csvDT.Rows)
+                {
+                    DataRow allRow = DT.NewRow();
+                    allRow[fsrTableColumns[0]] = rowData["Recipe Name"];
+                    allRow[fsrTableColumns[1]] = rowData["Product"];
+                    allRow[fsrTableColumns[2]] = rowData["Layer"];
+                    allRow[fsrTableColumns[3]] = rowData["Side"];
+                    allRow[fsrTableColumns[4]] = rowData["Lot"];
+                    allRow[fsrTableColumns[5]] = rowData["MeasTime"];
+                    allRow[fsrTableColumns[6]] = Convert.ToInt16(rowData["Unit"]);
+                    allRow[fsrTableColumns[7]] = rowData["Meas Type"];
+                    allRow[fsrTableColumns[8]] = rowData["TDia_Avg(um)"];
+                    allRow[fsrTableColumns[9]] = rowData["BDia_Avg(um)"];
+                    allRow[fsrTableColumns[10]] = rowData["SR_Thk(um)"];
+                    DT.Rows.Add(allRow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "HandleFSR", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "HandleFSR", "StackTrace");
+            }
+            finally
+            {
+                Log.Writelog("Function[HandleFSR] is complete", "Service1", "HandleFSR", "Tips");
+            }
+            return DT;
+        }
+        private DataTable HandleAlign(string path, string info)
+        {
+            DataTable DT = new DataTable();
+            DataTable csvDT = CsvToDT(path);
+            for (int i = 0; i < alignTableColumns.Length; i++)
+            {
+                DT.Columns.Add(alignTableColumns[i]);
+            }
+            if (csvDT.Rows.Count == 0)
+            {
+                Log.Writelog($"The [{path}] file =convert=> DataTable is null", "Service1", "HandleAlign", "Tips");
+                return DT;
+            }
+            try
+            {
+                string eqp = info.Split('-')[0].Trim();
+                string lot = info.Split('-')[1].Trim();
+                string side = info.Split('-')[3].Trim();
+                foreach (DataRow rowData in csvDT.Rows)
+                {
+                    DataRow allRow = DT.NewRow();
+                    allRow[alignTableColumns[0]] = eqp;
+                    allRow[alignTableColumns[1]] = lot;
+                    allRow[alignTableColumns[2]] = side;
+                    allRow[alignTableColumns[3]] = rowData["FeatureLabel"];
+                    allRow[alignTableColumns[4]] = rowData["OutputItem"];
+                    allRow[alignTableColumns[5]] = rowData["Actual"];
+                    DT.Rows.Add(allRow);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "HandleAlign", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "HandleAlign", "StackTrace");
+            }
+            finally
+            {
+                Log.Writelog("Function[HandleAlign] is complete", "Service1", "HandleAlign", "Tips");
+            }
+            return DT;
+        }
+        private bool MoveFile(string fileName, string fileFomart, string srcPath, string destPath)
+        {
+            bool result = false;
+            try
+            {
+                string srcFilePath = Path.Combine(srcPath, fileName);
+                if (!Directory.Exists(destPath))
+                {
+                    Directory.CreateDirectory(destPath);
+                    Log.Writelog($"Create folder[{destPath}] finished!", "Service1", "MoveFile", "Tips");
+                }
+                string destFileName = $"{fileName.Replace(fileFomart, string.Empty)}_{DateTime.Now.ToString("yyyyMMddHHmmssfff")}{fileFomart}";
+                string destFilePath = Path.Combine(destPath, destFileName);
+                File.Move(srcFilePath, destFilePath);
+                Log.Writelog($"The file[{fileName}]: [{srcPath}] ==move to==> [{destPath}]!", "Service1", "MoveFile", "Tips");
+                result = true;
+            }
+            catch (Exception ex)
+            {
+                result = false;
+                Log.Writelog(ex.Message, "Service1", "MoveFile", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "MoveFile", "StackTrace");
+            }
+            finally
+            {
+                Log.Writelog("Function[MoveFile] is complete", "Service1", "MoveFile", "Tips");
+            }
+            return result;
+        }
+        public void GetFiles()
+        {
+            if (!Directory.Exists(workingPath))
+            {
+                Log.Writelog($"Folder [{workingPath}] not exist! Please check! ", "Service1", "GetFiles", "Error");
+                return;
+            }
+            try
+            {
+                DirectoryInfo DI = new DirectoryInfo(workingPath);
+                DataTable DT = new DataTable();
+                foreach (string fileMask in fileNameMask)
+                {
+                    DT.Reset();
+                    FileInfo[] FI = DI.GetFiles(fileMask);
+                    if (FI.Length > 0)
+                    {
+                        foreach (FileInfo fi in FI)
+                        {
+                            Log.Writelog($"The file [{fi.Name}] is in process", "Service1", "GetFiles", "Tips");
+                            switch (fileMask)
+                            {
+                                case "*BSR.csv":
+                                    DT = HandleBSR(fi.FullName);
+                                    if (DT.Rows.Count == 0)
+                                    {
+                                        Log.Writelog($"The file [{fi.Name}] does not conform to the format", "Service1", "GetFiles", "Error");
+                                        continue;
+                                    }
+                                    if (MoveFile(fi.Name, ".csv", workingPath, archivePath))
+                                    {
+                                        AESDB.Insert(DT, bsrTable, bsrTableColumns);
+                                    }
+                                    break;
+                                case "*FSR.csv":
+                                    DT = HandleFSR(fi.FullName);
+                                    if (DT.Rows.Count == 0)
+                                    {
+                                        Log.Writelog($"The file [{fi.Name}] does not conform to the format", "Service1", "GetFiles", "Error");
+                                        continue;
+                                    }
+                                    if (MoveFile(fi.Name, ".csv", workingPath, archivePath))
+                                    {
+                                        AESDB.Insert(DT, fsrTable, fsrTableColumns);
+                                    }
+                                    break;
+                                case "*Align.csv":
+                                    DT = HandleAlign(fi.FullName, fi.Name);
+                                    if (DT.Rows.Count == 0)
+                                    {
+                                        Log.Writelog($"The file [{fi.Name}] does not conform to the format", "Service1", "GetFiles", "Error");
+                                        continue;
+                                    }
+                                    if (MoveFile(fi.Name, ".csv", workingPath, archivePath))
+                                    {
+                                        AESDB.Insert(DT, alignTable, alignTableColumns);
+                                    }
+                                    break;
+                            }
+                        }
+                        Log.Writelog($"[{fileMask}] handle finished", "Service1", "GetFiles", "Tips");
+                    }
+                    else
+                    {
+                        Log.Writelog($"The folder [{workingPath}] does not have [{fileMask}] file!", "Service1", "GetFiles", "Tips");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Writelog(ex.Message, "Service1", "GetFiles", "Exception");
+                Log.Writelog(ex.StackTrace, "Service1", "GetFiles", "StackTrace");
+            }
+            finally
+            {
+                Log.Writelog("Function[GetFiles] is complete", "Service1", "GetFiles", "Tips");
+            }
+        }
+        #endregion
+        #region service默认设置
+        public Service1()
+        {
+            InitializeComponent();
+        }
+        protected override void OnStart(string[] args)
+        {
+            Log.Writelog("Start the service!", "Service1", "OnStart", "Tips");
+            Workflow();
+        }
+        protected override void OnStop()
+        {
+            Log.Writelog("The service stopped!", "Service1", "OnStop", "Tips");
+        }
+        #endregion
+    }
+}
