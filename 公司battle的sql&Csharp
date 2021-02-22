@@ -117,3 +117,25 @@ namespace RX1
         }
     }
 }
+
+        //文件移动方法
+        public static void BackupData()
+        {
+            //需要存放（备份）的文件夹路径（Achieve）
+            string BackupPath = "D:/ATS/Application/copyTest";
+            //读取数据源文件的文件夹路径（Working）
+            string Path1 = "D:/ATS/Application";
+            //初始化system.IO的配置（路径
+            DirectoryInfo directoryInfo = new DirectoryInfo(Path1);
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files = directoryInfo.GetFiles();
+            //循环的把所有机台数据备份到Achieve文件夹
+            foreach (FileInfo file in files) // Directory.GetFiles(srcFolder)
+            {
+                if (file.Extension == ".xlsx")
+                {
+                    //使用IO中的Moveto函数进行移动文件操作
+                    file.MoveTo(Path.Combine(BackupPath, file.Name));
+                }
+            }
+        }
