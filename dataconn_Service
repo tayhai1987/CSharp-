@@ -1,0 +1,190 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Linq;
+using System.ServiceProcess;
+using System.Text;
+using System.Threading.Tasks;
+using System.Data.SqlClient;
+using System.Data.OleDb;
+using System.Timers;
+
+/* 
+1、上线先检测working文件夹是否有数据（未指定具体检测时间），先执行一遍程序（备份至Achive，存数据库）；
+2、3个方法：xlsToDatatable（读取excel表格），DataToSql（存数据库），BackupData（备份文件）
+3、定时器启动，间隔为10天，1天，1天（未指定具体检测时间）；
+4、BLY,DFL,SLY三种机台 用 equipName来区分，包括：文件夹路径，数据库表的名称；
+5、目前的路径，数据库，表都为测试的，不是正式的。
+*/
+namespace readXlsToSql
+{
+    public partial class Service1 : ServiceBase
+    {
+        public Service1()
+        {
+            InitializeComponent();
+            firstRead();
+        }
+
+        //第一次上线时，先检查是否有数据存在
+        public static void firstRead()
+        {
+
+            BackupData("BLY");
+
+            BackupData("SLY");
+
+            BackupData("DFL");
+        }
+        #region 各种全局定义
+        Timer TimBLY = new Timer();
+        Timer TimDFL = new Timer();
+        Timer TimSLY = new Timer();
+        #endregion
+
+        /*用于 移动源文件到指定文件夹，也就是备份源数据文件
+        copy all file in folder Working to Achieve*/
+        public static void BackupData(string equipName)
+        {
+            //需要存放（备份）的文件夹路径（Achieve）
+            string AchivePath = "D:/ATS/Application/copyTest/" + equipName + "/Achive";
+            //读取数据源文件的文件夹路径（Working）
+            string WorkingPath = "D:/ATS/Application/copyTest/" + equipName + "/Working";
+            //初始化system.IO的配置（路径)
+            DirectoryInfo directoryInfo = new DirectoryInfo(WorkingPath);
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files = directoryInfo.GetFiles();
+            //循环的把所有机台数据备份到Achieve文件夹
+            foreach (FileInfo file in files) // Directory.GetFiles(srcFolder)
+            {
+                if (file.Extension == ".xlsx")
+                {
+                    //使用IO中的Moveto函数进行移动文件操作
+                    file.MoveTo(Path.Combine(AchivePath, file.Name));
+                }
+            }
+        }
+        //将xls文件投入datatable ， 返回一个datatable为 ds.table[0]
+        public static DataTable xlsToDatable(string equipName)
+        {
+            //设置excel 文件的路径
+            string ExcelPath = "D:/ATS/Application/copyTest/" + equipName + "/Template_BLY103 Stage Temp. monitoring by third tool_2021.01.23.xlsx";
+
+            DataTable dt1 = new DataTable();
+            string strExcel = "select * from   [Sheet1$]";
+
+            //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
+            DataSet ds = new DataSet();
+            // 连接到excel 数据源,   xlsx要用ACE 
+            string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0;" + "Data Source= " + ExcelPath + "; Extended Properties='Excel 12.0'");
+            OleDbConnection conn = new OleDbConnection(strConn);
+            conn.Open();
+
+            // 存入datatable
+            OleDbDataAdapter dAdapter = new OleDbDataAdapter(strExcel, strConn);
+            dAdapter.Fill(ds);
+            conn.Dispose();
+            conn.Close();
+            return ds.Tables[0];
+        }
+
+        // 将datatable中的数据存入SQL server
+        public static void DataToSql(string equipName)
+        {
+            //运行时间的简单记录
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+
+            //初始化配置 sqlserver的服务器名用户等
+            //注意Integrated Security不写（false）表示必须要用pwd登录，true表示用密码就进入数据库
+            string connStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; User ID=cq1_atsdc_user;" +
+            "Password = a8ZbJU9aBcJdY9";
+            SqlConnection Conn = new SqlConnection(connStr);
+            Conn.Open();
+
+            //配置SQLBulkCopy方法
+            SqlBulkCopy bulkCopy = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction);
+            bulkCopy.DestinationTableName = "HD_" + equipName + "_Stage";
+
+            try
+            {
+                //开始复制到sql,每次在数据库中添加，不覆盖之前数据
+                bulkCopy.WriteToServer(xlsToDatable(equipName));
+                bulkCopy.Close();
+                //MessageBox.Show(" Written successful！ ");
+            }
+            catch
+            {
+
+            }
+            finally
+            {
+                //运行时间记录停止（不记录），关闭数据库
+                sw.Stop();
+                Conn.Close();
+            }
+        }
+
+
+        #region 3个定时器的初始化，及其事务
+        //这个按钮用于模拟服务(定时器BLY）启动，    start按钮
+        private void InitTimer()
+        {
+            //BLY的定时器
+            TimBLY.Interval = 24 * 3600 * 1000; //记时长短(10天)
+            TimBLY.Elapsed += new ElapsedEventHandler(ElapsedEventBLY);
+            TimBLY.Enabled = true;
+            TimBLY.AutoReset = true;
+            //DFL的定时器
+            TimDFL.Interval = 24 * 3600 * 1000;
+            TimDFL.Elapsed += new ElapsedEventHandler(ElapsedEventDFL);
+            TimDFL.Enabled = true;
+            TimDFL.AutoReset = true;
+            //SLY的定时器
+            TimSLY.Interval = 24 * 3600 * 1000;
+            TimSLY.Elapsed += new ElapsedEventHandler(ElapsedEventSLY);
+            TimSLY.Enabled = true;
+            TimSLY.AutoReset = true;
+        }
+        private void ElapsedEventBLY(object source, ElapsedEventArgs e)
+        {
+            TimBLY.Stop();
+            xlsToDatable("BLY");
+            DataToSql("BLY");
+            BackupData("BLY");
+            TimBLY.Start();
+        }
+        private void ElapsedEventDFL(object source, ElapsedEventArgs e)
+        {
+            TimDFL.Stop();
+            xlsToDatable("DFL");
+            DataToSql("DFL");
+            BackupData("DFL");
+            TimDFL.Start();
+        }
+        private void ElapsedEventSLY(object source, ElapsedEventArgs e)
+        {
+            TimSLY.Stop();
+            xlsToDatable("SLY");
+            DataToSql("SLY");
+            BackupData("SLY");
+            TimSLY.Start();
+        }
+        #endregion
+
+        protected override void OnStart(string[] args)
+        {
+            //启动服务时做的事情
+           
+        }
+
+        protected override void OnStop()
+        {
+            //停止服务时做的事情
+
+        }
+    }
+}
