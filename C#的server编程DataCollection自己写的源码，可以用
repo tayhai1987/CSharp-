@@ -1,0 +1,185 @@
+using System.IO;
+using System.Data;
+using System.Configuration;
+using System.ServiceProcess;
+using System.Data.SqlClient;
+using System.Data.OleDb;
+using System.Timers;
+using Log4AES;
+using System;
+
+/* 
+1、上线先可以检测working文件夹是否有数据（未指定具体检测时间），先执行一遍程序（备份至Achive，存数据库）；
+    也可以不先执行
+2、3个方法：xlsToDatatable（读取excel表格），DataToSql（存数据库），BackupData（备份文件）
+3、定时器启动，间隔为10天，1天，1天（未指定具体检测时间）；
+4、BLY,DFL,SLY三种机台 用 equipName来区分，包括：文件夹路径，数据库表的名称；
+5、目前的路径，数据库，表都为测试的，不是正式的。
+*/
+namespace readXlsToSql
+{
+    public partial class Service1 : ServiceBase
+    {
+        public Service1()
+        {
+            InitializeComponent();
+            //创建log的存储路径
+            if (!Directory.Exists(LogPath))
+            {
+                Directory.CreateDirectory(LogPath);
+            }
+            InitTimer();
+        }
+        #region 各种配置的全局定义
+        //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
+        DataSet ds = new DataSet();
+        Timer TimBLY = new Timer();
+        Timer TimDFL = new Timer();
+        Timer TimSLY = new Timer();
+        string LogPath = ConfigurationSettings.AppSettings["LogPath"].ToString();
+        string WPath = ConfigurationSettings.AppSettings["WorkingPath"].ToString();
+        string APath = ConfigurationSettings.AppSettings["AchivePath"].ToString();
+        //用于记录log的时候，机台名字
+        string machineName = "BLY_SLY_DFL";
+        #endregion
+        #region 定时器的初始化，及其事务
+        //这个按钮用于模拟服务(定时器BLY）启动，    start按钮
+        public void InitTimer()
+        {
+            //DFL的定时器
+            TimDFL.Interval = 15 * 1000;
+            //定时器的事务
+            TimDFL.Elapsed += new ElapsedEventHandler(ElapsedEventDFL);
+            TimDFL.Enabled = true;
+            TimDFL.AutoReset = true;
+        }
+        private void ElapsedEventDFL(object source, ElapsedEventArgs e)
+        {
+            Log4App.WriteLine(" Start the collect! ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            GetFiles("DFL");
+            DataToSql("DFL");
+            BackupData("DFL");
+            Log4App.WriteLine(" End the collect !", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+        }
+        #endregion
+        //log初始化设置
+        Log4Application Log4App = new Log4Application();
+
+        /*用于移动源文件到指定文件夹，也就是备份源数据文件
+        copy all file in folder Working to Achieve*/
+        public void BackupData(string equipName)
+        {
+            //需要存放（备份）的文件夹路径（Achieve）
+            string AchivePath = APath + equipName + "\\Achive";
+            //读取数据源文件的文件夹路径（Working）
+            string WorkingPath = WPath + equipName + "\\Working";
+            //初始化system.IO的配置（路径)
+            DirectoryInfo directoryInfo = new DirectoryInfo(WorkingPath);
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files = directoryInfo.GetFiles();
+            //循环的把所有机台数据备份到Achieve文件夹
+            try
+            {
+                foreach (FileInfo file in files) // Directory.GetFiles(srcFolder)
+                {
+                    //使用IO中的Moveto函数进行移动文件操作
+                    file.MoveTo(Path.Combine(AchivePath, file.Name));
+                    Log4App.WriteLine(" Backup " + equipName + " Data successful！", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+
+                }
+            }
+            catch (Exception ex)
+            {
+                Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            }
+        }
+
+        
+        //将xls文件投入datatable ， 返回一个datatable为 ds.table[0]
+        public void GetFiles(string equipName)
+        {
+            string strExcel = "select * from [Sheet1$]";
+            //初始化system.IO的配置（路径)
+            DirectoryInfo directoryInfo1 = new DirectoryInfo(WPath + equipName + "\\Working");
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files1 = directoryInfo1.GetFiles();
+            foreach (FileInfo file in files1) // Directory.GetFiles(srcFolder)
+            {
+                // 连接到excel 数据源,   xlsx要用ACE
+                string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0;" + "Data Source= " + file.FullName + "; Extended Properties='Excel 12.0';");
+                OleDbConnection conn = new OleDbConnection(strConn);
+                try
+                {
+                    conn.Open();
+                    // 存入datatable
+                    OleDbDataAdapter dAdapter = new OleDbDataAdapter(strExcel, strConn);
+                    dAdapter.Fill(ds);
+                    conn.Dispose();
+                    conn.Close();
+                    Log4App.WriteLine(equipName + " data Read successful！ ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                }
+                catch (Exception ex)
+                {
+                    Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                    Log4App.WriteLine(ex.StackTrace, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+
+                }
+            }
+        }
+
+        // 将datatable中的数据存入SQL server
+        public void DataToSql(string equipName)
+        {
+            //初始化配置 sqlserver的服务器名用户等
+            //注意Integrated Security不写（false）表示必须要用pwd登录，true表示不用密码也能进入数据库
+            string connStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; " +
+                "User ID=cq1_atsdc_user;Password = a8ZbJU9aBcJdY9";
+    //        string connStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; " +
+    //"User ID=cq1_atsdc_user;Password = a8ZbJU9aBcJdY9";
+            SqlConnection Conn = new SqlConnection(connStr);
+            Conn.Open();
+
+            //配置SQLBulkCopy方法，真正用于复制数据到数据库的方法
+            SqlBulkCopy bulkCopy = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction)
+            {
+                DestinationTableName = "DataCollection_" + equipName + "_HotRoller_HD"
+            };
+            try
+            {
+                foreach(DataColumn item in ds.Tables[0].Columns)
+                {
+                    //只复制所选的相关列
+                    bulkCopy.ColumnMappings.Add(item.ColumnName, item.ColumnName);
+                }
+                //开始复制到sql,每次在数据库中添加
+                bulkCopy.WriteToServer(ds.Tables[0]);
+                bulkCopy.Close();
+                //copy完了，要清空ds的内容，不然会引起循环写入上一个内容
+                ds.Tables.Clear();
+                Log4App.WriteLine(equipName + " data written to SQL server successful！", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            }
+            catch(Exception ex)
+            {
+                Log4App.WriteLine("Error,No "+ equipName + " data now! Collect again after 24 hours", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.StackTrace, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            }
+            finally
+            {
+                //关闭数据库通道
+                Conn.Close();
+            }
+        }
+
+        protected override void OnStart(string[] args)
+        {
+            //启动服务时做的事情
+            Log4App.WriteLine("Service start!", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+        }
+        protected override void OnStop()
+        {
+            //停止服务时做的事情
+            Log4App.WriteLine("Service end!", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+        }
+    }
+}
