@@ -1,141 +1,192 @@
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+using System.IO;
 using System.Data;
+using System.Configuration;
+using System.ServiceProcess;
 using System.Data.SqlClient;
 using System.Data.OleDb;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using System.Diagnostics;
+using System.Timers;
+using Log4AES;
+using System;
 
-namespace RX1
+namespace DataCollection_model_HD
 {
-    public partial class Form1 : Form
+    public partial class Service1 : ServiceBase
     {
-        public Form1()
+        public Service1()
         {
+
             InitializeComponent();
+            //创建log的存储路径
+            if (!Directory.Exists(LogPath))
+            {
+                Directory.CreateDirectory(LogPath);
+            }
+            InitTimer();
         }
+        #region 各种配置的全局定义
+        //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
+        DataSet ds = new DataSet();
 
-        
-        //点击展示excel转为datatable格式的数据
-        private void button1_Click_1(object sender, EventArgs e)
+        Timer TimDFL = new Timer();
+
+        string LogPath = ConfigurationManager.AppSettings["LogPath"].ToString();
+        string WPath = ConfigurationManager.AppSettings["WorkingPath"].ToString();
+        string APath = ConfigurationManager.AppSettings["ArchivePath"].ToString();
+        //数据库登录
+        //string ConnStr = ConfigurationManager.AppSettings["ConnStr"].ToString();
+        //用于记录log的时候，机台名字
+        string machineName = "DFL";
+        #endregion
+        #region 定时器的初始化，及其事务
+        //这个按钮用于模拟服务(定时器BLY）启动，    start按钮
+        public void InitTimer()
         {
-            //dataGridView1.DataSource = null;
+            //DFL的定时器 （1天）
+            TimDFL.Interval = 15 * 1000;
+            //定时器的事务
+            TimDFL.Elapsed += new ElapsedEventHandler(ElapsedEventDFL);
+            TimDFL.Enabled = true;
+            TimDFL.AutoReset = true;
+        }
+        private void ElapsedEventDFL(object source, ElapsedEventArgs e)
+        {
+            Log4App.WriteLine(" ---- Start the collect !  ----", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            GetFiles("DFL");
+            DataToSql("DFL");
+            BackupData("DFL");
+            Log4App.WriteLine(" ---- End the collect ! ----", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+        }
+        #endregion
+        //log初始化设置
+        Log4Application Log4App = new Log4Application();
+
+        /*用于移动源文件到指定文件夹，也就是备份源数据文件
+        copy all file in folder Working to Achieve*/
+        public void BackupData(string equipName)
+        {
+            //需要存放（备份）的文件夹路径（Achieve）
+            string ArchivePath = APath + equipName + "\\Archive";
+            //读取数据源文件的文件夹路径（Working）
+            string WorkingPath = WPath + equipName + "\\Working";
+            //初始化system.IO的配置（路径)
+            DirectoryInfo directoryInfo = new DirectoryInfo(WorkingPath);
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files = directoryInfo.GetFiles();
+            //循环的把所有机台数据备份到Achieve文件夹
             try
             {
-                dataGridView1.DataSource = xlsToDatable();
+                foreach (FileInfo file in files) // Directory.GetFiles(srcFolder)
+                {
+                    //使用IO中的Moveto函数进行移动文件操作
+                    file.MoveTo(Path.Combine(ArchivePath, file.Name));
+                    Log4App.WriteLine(" Backup -[" + file.Name + "]- Data successful！", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                MessageBox.Show(" 打开失败 ！");
+                Log4App.WriteLine("!!!!!Error , backup " + equipName + "data failed! ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.StackTrace, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
             }
-            finally
+        }
+
+
+        //将xls文件投入datatable ， 返回一个datatable为 ds.table[0]
+        public void GetFiles(string equipName)
+        {
+            string strExcel = "select * from [Sheet1$]";
+            //初始化system.IO的配置（路径)
+            DirectoryInfo directoryInfo1 = new DirectoryInfo(WPath + equipName + "\\Working");
+            //用文件流来获取文件夹中所有文件，存放到
+            FileInfo[] files1 = directoryInfo1.GetFiles();
+            foreach (FileInfo file in files1) // Directory.GetFiles(srcFolder)
             {
-                //
+                // 连接到excel 数据源,   xlsx要用ACE
+                string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0;" + "Data Source= " + file.FullName + "; Extended Properties='Excel 12.0';");
+                OleDbConnection conn = new OleDbConnection(strConn);
+                try
+                {
+                    conn.Open();
+                    // 存入datatable
+                    OleDbDataAdapter dAdapter = new OleDbDataAdapter(strExcel, strConn);
+                    dAdapter.Fill(ds);
+                    conn.Dispose();
+                    conn.Close();
+                    Log4App.WriteLine(" [" + file.Name + "] " + " data Read successful！ ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                }
+                catch (Exception ex)
+                {
+                    Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                    Log4App.WriteLine(ex.StackTrace, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                }
             }
-         
-
-        }
-        //将xls文件投入datatable ， 返回一个datatable为 ds1.table[0]
-        public static DataTable xlsToDatable()
-        {
-            //设置excel 文件的路径
-            string ExcelPath = "D:/ATS/Application/wpf/battle.xlsx";
-            
-            DataTable dt1 = new DataTable();
-            string strExcel = "select * from   [Sheet1$]";
-
-            //定义一个dataset 用于暂时存放excel中的数据,后续要存入datatable
-            DataSet ds1 = new DataSet();
-            // 连接到excel 数据源,   xlsx要用ACE 
-            string strConn = ("Provider=Microsoft.ACE.OLEDB.12.0;" + "Data Source= "+ ExcelPath + "; Extended Properties='Excel 12.0'");
-            OleDbConnection conn = new OleDbConnection(strConn);
-            conn.Open();
-
-            // 存入datatable
-            OleDbDataAdapter dAdapter = new OleDbDataAdapter(strExcel, strConn);
-            dAdapter.Fill(ds1);
-            conn.Dispose();
-            conn.Close();
-            return ds1.Tables[0];
-        }
-      
-        private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
-        {
-
         }
 
-        //点击展示从数据库读取的数据，从sql server转为datatable
-        private void button2_Click(object sender, EventArgs e)
+        // 将datatable中的数据存入SQL server
+        public void DataToSql(string equipName)
         {
-            //运行时间简单记录
-            System.Diagnostics.Stopwatch sw = new Stopwatch();
-            sw.Start();
-            
-            //配置 sqlserver的服务器名用户等
-            string connStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; User ID=cq1_atsdc_user;" +
-            "Password = a8ZbJU9aBcJdY9";
-            SqlConnection Conn = new SqlConnection(connStr);
+            //初始化配置 sqlserver的服务器名用户等
+            //注意Integrated Security不写（false）表示必须要用pwd登录，true表示不用密码也能进入数据库
+            string ConnStr = "Data Source = AGCCQCM62ODS\\STG; Initial CataLog= AtsDataCollection; " +
+    "User ID=cq1_atsdc_user;Password = a8ZbJU9aBcJdY9";
+            SqlConnection Conn = new SqlConnection(ConnStr);
             Conn.Open();
-            SqlBulkCopy bulkCopy = new SqlBulkCopy(connStr, SqlBulkCopyOptions.UseInternalTransaction);
-            
-            bulkCopy.DestinationTableName = "AES_excel_toSql";
 
-            // 添加数据到datatable  现在从excel读取到datatable。所以有数据，不用添加
-            //string[] columns = new[] { "R", "C", "E" };
-            //foreach (var col in columns)
-            //{
-            //    dt.Columns.Add(col);
-            //    bulkCopy.ColumnMappings.Add(col, col);
-            //}
-            //for (int i = 0; i < 50 * 10000; i++)
-            //    dt.Rows.Add(i.ToString(), i.ToString());
-
-            //开始复制到sql
+            //配置SQLBulkCopy方法，真正用于复制数据到数据库的方法
+            SqlBulkCopy bulkCopy = new SqlBulkCopy(ConnStr, SqlBulkCopyOptions.UseInternalTransaction)
+            {
+                DestinationTableName = "DataCollection_ModelTest_HD"
+            };
             try
             {
-                bulkCopy.WriteToServer(xlsToDatable());
+                foreach (DataColumn item in ds.Tables[0].Columns)
+                {
+                    //只复制所选的相关列
+                    bulkCopy.ColumnMappings.Add(item.ColumnName, item.ColumnName);
+                }
+                //开始复制到sql,每次在数据库中添加
+                bulkCopy.WriteToServer(ds.Tables[0]);
                 bulkCopy.Close();
+                //copy完了，要清空ds的内容，不然会引起循环写入上一个内容
+                ds.Tables.Clear();
+                Log4App.WriteLine(equipName + " data written to SQL server successful！", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
             }
-            
-            catch
+            catch (Exception ex)
             {
-                MessageBox.Show("failed!");
-            }  
+                Log4App.WriteLine("Error,No " + equipName + " data now! Collect again after 24 hours", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.Message, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+                Log4App.WriteLine(ex.StackTrace, LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+            }
             finally
             {
-                //运行时间记录停止（不记录），关闭数据库
-                sw.Stop();
-
+                //关闭数据库通道
                 Conn.Close();
-                MessageBox.Show("  successful！ ");
             }
+        }
+
+        protected override void OnStart(string[] args)
+        {
+            //启动服务时做的事情
+            Log4App.WriteLine("- - - This DataCollection service is first start! - - - ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
+        }
+        protected override void OnStop()
+        {
+            //停止服务时做的事情
+            Log4App.WriteLine("- - - This DataCollection service is end! - - - ", LogPath, machineName, System.Threading.Thread.CurrentThread.ManagedThreadId.ToString(), Log4AES.Type.Information);
         }
     }
 }
 
-        //文件移动方法
-        public static void BackupData()
-        {
-            //需要存放（备份）的文件夹路径（Achieve）
-            string BackupPath = "D:/ATS/Application/copyTest";
-            //读取数据源文件的文件夹路径（Working）
-            string Path1 = "D:/ATS/Application";
-            //初始化system.IO的配置（路径
-            DirectoryInfo directoryInfo = new DirectoryInfo(Path1);
-            //用文件流来获取文件夹中所有文件，存放到
-            FileInfo[] files = directoryInfo.GetFiles();
-            //循环的把所有机台数据备份到Achieve文件夹
-            foreach (FileInfo file in files) // Directory.GetFiles(srcFolder)
-            {
-                if (file.Extension == ".xlsx")
-                {
-                    //使用IO中的Moveto函数进行移动文件操作
-                    file.MoveTo(Path.Combine(BackupPath, file.Name));
-                }
-            }
-        }
+
+<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+    <startup> 
+        <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.6.1" />
+    </startup>
+  <appSettings>
+    <add key="WorkingPath" value="D:\ATS\Application\copyTest\"/>
+    <add key="ArchivePath" value="D:\ATS\Application\copyTest\"/>
+    <add key="LogPath" value="D:\ATS\Log\DataCollection_ModelTest_HD\"/>
+  </appSettings>
+</configuration>
